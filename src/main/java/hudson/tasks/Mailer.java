@@ -24,6 +24,9 @@
  */
 package hudson.tasks;
 
+import com.cloudbees.plugins.credentials.CredentialsMatchers;
+import com.cloudbees.plugins.credentials.CredentialsProvider;
+import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import static hudson.Util.fixEmptyAndTrim;
 
@@ -51,6 +54,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -261,14 +265,6 @@ public class Mailer extends Notifier implements SimpleBuildStep {
          */
         private String hudsonUrl;
 
-        /** @deprecated as of 1.23, use {@link #authentication} */
-        @Deprecated
-        private transient String smtpAuthUsername;
-
-        @Deprecated
-        /** @deprecated as of 1.23, use {@link #authentication} */
-        private transient Secret smtpAuthPassword;
-
         private SMTPAuthentication authentication;
 
         /**
@@ -349,13 +345,32 @@ public class Mailer extends Notifier implements SimpleBuildStep {
          * @return mail session based on the underlying session parameters.
          */
         public Session createSession() {
-            return createSession(smtpHost,smtpPort,useSsl,useTls,getSmtpAuthUserName(),getSmtpAuthPasswordSecret());
+            String credentialsId = null;
+            if (this.authentication != null) {
+                credentialsId = this.getAuthentication().getCredentialsId();
+            }
+            return createSession(smtpHost,smtpPort,useSsl,useTls,credentialsId);
         }
-        private static Session createSession(String smtpHost, String smtpPort, boolean useSsl, boolean useTls, String smtpAuthUserName, Secret smtpAuthPassword) {
+
+        private static Session createSession(String smtpHost, String smtpPort, boolean useSsl, boolean useTls, String credentialsId) {
             final String SMTP_PORT_PROPERTY = "mail.smtp.port";
             final String SMTP_SOCKETFACTORY_PORT_PROPERTY = "mail.smtp.socketFactory.port";
 
             smtpPort = fixEmptyAndTrim(smtpPort);
+
+            String smtpAuthUserName = null;
+            Secret smtpAuthPassword = null;
+            if (credentialsId != null) {
+                StandardUsernamePasswordCredentials credentials = CredentialsMatchers.firstOrNull(
+                        CredentialsProvider.lookupCredentials(StandardUsernamePasswordCredentials.class, (Item) null, null, Collections.emptyList()),
+                        CredentialsMatchers.withId(credentialsId));
+
+                if (credentials != null) {
+                    smtpAuthUserName = credentials.getUsername();
+                    smtpAuthPassword = credentials.getPassword();
+                }
+            }
+
             smtpAuthUserName = fixEmptyAndTrim(smtpAuthUserName);
 
             Properties props = new Properties(System.getProperties());
@@ -493,31 +508,6 @@ public class Mailer extends Notifier implements SimpleBuildStep {
             return getJenkinsLocationConfiguration().getUrl();
         }
 
-        /**
-         * @deprecated as of 1.21
-         *      Use {@link #authentication}
-         */
-        @Deprecated
-        public String getSmtpAuthUserName() {
-            if (authentication == null) return null;
-            return authentication.getUsername();
-        }
-
-        /**
-         * @deprecated as of 1.21
-         *      Use {@link #authentication}
-         */
-        @Deprecated
-        public String getSmtpAuthPassword() {
-            if (authentication == null) return null;
-            return Secret.toString(authentication.getPassword());
-        }
-
-        public Secret getSmtpAuthPasswordSecret() {
-            if (authentication == null) return null;
-            return authentication.getPassword();
-        }
-
         public boolean getUseSsl() {
         	return useSsl;
         }
@@ -606,19 +596,6 @@ public class Mailer extends Notifier implements SimpleBuildStep {
             return authentication;
         }
 
-        /**
-         * @deprecated as of 1.21
-         *      Use {@link #authentication}
-         */
-        @Deprecated
-        public void setSmtpAuth(String userName, String password) {
-            if (userName == null && password == null) {
-                this.authentication = null;
-            } else {
-                this.authentication = new SMTPAuthentication(userName, Secret.fromString(password));
-            }
-        }
-
         @Override
         public Publisher newInstance(StaplerRequest req, JSONObject formData) throws FormException {
             Mailer m = (Mailer)super.newInstance(req, formData);
@@ -630,13 +607,6 @@ public class Mailer extends Notifier implements SimpleBuildStep {
             }
 
             return m;
-        }
-
-        private Object readResolve() {
-            if (smtpAuthPassword != null) {
-                authentication = new SMTPAuthentication(smtpAuthUsername, smtpAuthPassword);
-            }
-            return this;
         }
 
         public FormValidation doAddressCheck(@QueryParameter String value) {
@@ -671,8 +641,7 @@ public class Mailer extends Notifier implements SimpleBuildStep {
          * @param smtpHost name of the SMTP server to use for mail sending
          * @param adminAddress Jenkins administrator mail address
          * @param authentication if set to {@code true} SMTP is used without authentication (username and password)
-         * @param username plaintext username for SMTP authentication
-         * @param password secret password for SMTP authentication
+         * @param credentialsId Jenkins Username/Password credential for SMTP authentication
          * @param useSsl if set to {@code true} SSL is used
          * @param useTls if set to {@code true} TLS is used
          * @param smtpPort port to use for SMTP transfer
@@ -683,7 +652,7 @@ public class Mailer extends Notifier implements SimpleBuildStep {
         @RequirePOST
         public FormValidation doSendTestMail(
                 @QueryParameter String smtpHost, @QueryParameter String adminAddress, @QueryParameter boolean authentication,
-                @QueryParameter String username, @QueryParameter Secret password,
+                @QueryParameter String credentialsId,
                 @QueryParameter boolean useSsl, @QueryParameter boolean useTls, @QueryParameter String smtpPort, @QueryParameter String charset,
                 @QueryParameter String sendTestMailTo) throws IOException {
             try {
@@ -696,11 +665,10 @@ public class Mailer extends Notifier implements SimpleBuildStep {
                 jenkins.checkPermission(Jenkins.ADMINISTER);
                 
                 if (!authentication) {
-                    username = null;
-                    password = null;
+                    credentialsId = null;
                 }
                 
-                MimeMessage msg = new MimeMessage(createSession(smtpHost, smtpPort, useSsl, useTls, username, password));
+                MimeMessage msg = new MimeMessage(createSession(smtpHost, smtpPort, useSsl, useTls, credentialsId));
                 msg.setSubject(Messages.Mailer_TestMail_Subject(testEmailCount.incrementAndGet()), charset);
                 msg.setText(Messages.Mailer_TestMail_Content(testEmailCount.get(), jenkins.getDisplayName()), charset);
                 msg.setFrom(stringToAddress(adminAddress, charset));
