@@ -1,5 +1,6 @@
 package hudson.tasks;
 
+import com.cloudbees.plugins.credentials.CredentialsMatchers;
 import com.cloudbees.plugins.credentials.CredentialsProvider;
 import com.cloudbees.plugins.credentials.common.StandardListBoxModel;
 import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials;
@@ -7,11 +8,14 @@ import hudson.Extension;
 import hudson.model.AbstractDescribableImpl;
 import hudson.model.Descriptor;
 import hudson.model.Item;
+import hudson.security.ACL;
 import hudson.util.ListBoxModel;
 import jenkins.model.Jenkins;
 import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
+
+import java.util.Collections;
 
 /**
  * @author <a href="mailto:nicolas.deloof@gmail.com">Nicolas De Loof</a>
@@ -53,7 +57,7 @@ public class SMTPAuthentication extends AbstractDescribableImpl<SMTPAuthenticati
                 }
             }
             return result
-                    .includeMatchingAs(null, (Item) null, StandardUsernamePasswordCredentials.class, null, null)
+                    .includeMatchingAs(ACL.SYSTEM, (Item) null, StandardUsernamePasswordCredentials.class, Collections.emptyList(), CredentialsMatchers.always())
                     .includeCurrentValue(credentialsId);
         }
     }

@@ -39,6 +39,7 @@ import hudson.Launcher;
 import hudson.RestrictedSince;
 import hudson.Util;
 import hudson.model.*;
+import hudson.security.ACL;
 import jenkins.plugins.mailer.tasks.i18n.Messages;
 import hudson.util.FormValidation;
 import hudson.util.Secret;
@@ -56,6 +57,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.Date;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
@@ -64,6 +66,7 @@ import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.mail.Address;
 import javax.mail.Authenticator;
 import javax.mail.Message;
@@ -345,33 +348,15 @@ public class Mailer extends Notifier implements SimpleBuildStep {
          * @return mail session based on the underlying session parameters.
          */
         public Session createSession() {
-            String credentialsId = null;
-            if (this.authentication != null) {
-                credentialsId = this.getAuthentication().getCredentialsId();
-            }
+            String credentialsId = Optional.ofNullable(authentication).map(auth -> auth.getCredentialsId()).orElse(null);
             return createSession(smtpHost,smtpPort,useSsl,useTls,credentialsId);
         }
 
-        private static Session createSession(String smtpHost, String smtpPort, boolean useSsl, boolean useTls, String credentialsId) {
+        private static Session createSession(String smtpHost, String smtpPort, boolean useSsl, boolean useTls, @Nullable String credentialsId) {
             final String SMTP_PORT_PROPERTY = "mail.smtp.port";
             final String SMTP_SOCKETFACTORY_PORT_PROPERTY = "mail.smtp.socketFactory.port";
 
             smtpPort = fixEmptyAndTrim(smtpPort);
-
-            String smtpAuthUserName = null;
-            Secret smtpAuthPassword = null;
-            if (credentialsId != null) {
-                StandardUsernamePasswordCredentials credentials = CredentialsMatchers.firstOrNull(
-                        CredentialsProvider.lookupCredentials(StandardUsernamePasswordCredentials.class, (Item) null, null, Collections.emptyList()),
-                        CredentialsMatchers.withId(credentialsId));
-
-                if (credentials != null) {
-                    smtpAuthUserName = credentials.getUsername();
-                    smtpAuthPassword = credentials.getPassword();
-                }
-            }
-
-            smtpAuthUserName = fixEmptyAndTrim(smtpAuthUserName);
 
             Properties props = new Properties(System.getProperties());
             if(fixEmptyAndTrim(smtpHost)!=null)
@@ -415,24 +400,22 @@ public class Mailer extends Notifier implements SimpleBuildStep {
                 props.put("mail.smtp.starttls.enable", "true");
                 props.put("mail.smtp.starttls.required", "true");
             }
-            if(smtpAuthUserName!=null)
-                props.put("mail.smtp.auth","true");
+
+            Optional<Authenticator> authenticator = Optional.ofNullable(credentialsId)
+                    .map(id -> CredentialsMatchers.firstOrNull(
+                            CredentialsProvider.lookupCredentials(StandardUsernamePasswordCredentials.class, (Item) null, ACL.SYSTEM, Collections.emptyList()),
+                            CredentialsMatchers.withId(id)))
+                    .map(creds -> new StandardUsernamePasswordCredentialsAuthenticator(creds));
+			if (authenticator.isPresent()) {
+			    LOGGER.fine(String.format("Sending mail with SMTP authentication (credential ID: %s)", credentialsId));
+                props.put("mail.smtp.auth", "true");
+            }
 
             // avoid hang by setting some timeout. 
             props.put("mail.smtp.timeout","60000");
             props.put("mail.smtp.connectiontimeout","60000");
 
-            return Session.getInstance(props,getAuthenticator(smtpAuthUserName,Secret.toString(smtpAuthPassword)));
-        }
-
-        private static Authenticator getAuthenticator(final String smtpAuthUserName, final String smtpAuthPassword) {
-            if(smtpAuthUserName==null)    return null;
-            return new Authenticator() {
-                @Override
-                protected PasswordAuthentication getPasswordAuthentication() {
-                    return new PasswordAuthentication(smtpAuthUserName,smtpAuthPassword);
-                }
-            };
+            return Session.getInstance(props, authenticator.orElse(null));
         }
 
         @Override
