@@ -6,14 +6,14 @@ import com.cloudbees.plugins.credentials.domains.DomainRequirement;
 import hudson.model.Item;
 
 import java.util.List;
+import java.util.Optional;
 
 public class Util {
-    static StandardUsernamePasswordCredentials lookupCredential(String id) {
+    static Optional<StandardUsernamePasswordCredentials> lookupCredential(String id) {
         final List<StandardUsernamePasswordCredentials> credentials = CredentialsProvider.lookupCredentials(StandardUsernamePasswordCredentials.class, (Item) null, null, (List<DomainRequirement>) null);
 
         return credentials.stream()
                 .filter(cred -> cred.getId().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("Can't find the migrated test credential"));
+                .findFirst();
     }
 }

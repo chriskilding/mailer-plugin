@@ -18,7 +18,8 @@ public class AddCredentialsToSmtpAuthenticationTest extends MigrationTest {
 
         assertNotNull(credentialsId);
 
-        final StandardUsernamePasswordCredentials migratedCredential = Util.lookupCredential(credentialsId);
+        final StandardUsernamePasswordCredentials migratedCredential = Util.lookupCredential(credentialsId)
+                .orElseThrow(() -> new RuntimeException("Can't find the migrated test credential"));
 
         assertEquals("olduser", migratedCredential.getUsername());
         assertEquals("{AQAAABAAAAAQ1UuHpGkqtUa56seSp+wJjfuiggZPi/D+t38985a5tXU=}", migratedCredential.getPassword().getPlainText());

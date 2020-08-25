@@ -32,8 +32,6 @@ public class SMTPAuthentication extends AbstractDescribableImpl<SMTPAuthenticati
 
     private static final Logger LOGGER = Logger.getLogger(SMTPAuthentication.class.getName());
 
-    private static final int NUM_RETRIES = 10;
-
     /** use StandardUsernamePasswordCredentials instead */
     @Deprecated
     private transient String username;
@@ -71,8 +69,8 @@ public class SMTPAuthentication extends AbstractDescribableImpl<SMTPAuthenticati
                     .findFirst()
                     .orElseThrow(() -> new RuntimeException("Could not migrate the Mailer SMTP authentication details to credential, as the system credentials provider was missing."));
 
-            final boolean isSuccess = retry(NUM_RETRIES, (attempt) -> {
-                LOGGER.log(Level.CONFIG, "Attempt {0}/{1}...", new Object[]{ attempt, NUM_RETRIES});
+            final boolean isSuccess = Retryable.retry(9, (attempt) -> {
+                LOGGER.log(Level.CONFIG, "Attempt {0}...", attempt);
 
                 final String id = UUID.randomUUID().toString();
 
@@ -101,23 +99,7 @@ public class SMTPAuthentication extends AbstractDescribableImpl<SMTPAuthenticati
         return this;
     }
 
-    private interface Retryable {
-        void run(int attempt) throws Exception;
-    }
 
-    private static boolean retry(int times, Retryable fn) {
-        for (int attempt = 1; attempt <= times; ++attempt) {
-            try {
-                fn.run(attempt);
-
-                return true;
-            } catch (Exception e) {
-                // try again
-            }
-        }
-
-        return false;
-    }
 
     @Extension
     public static class DescriptorImpl extends Descriptor<SMTPAuthentication> {
