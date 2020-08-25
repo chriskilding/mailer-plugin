@@ -6,7 +6,6 @@ import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredenti
 import com.cloudbees.plugins.credentials.domains.Domain;
 import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl;
 import hudson.Extension;
-import hudson.ExtensionList;
 import hudson.model.AbstractDescribableImpl;
 import hudson.model.Descriptor;
 import hudson.model.Item;
@@ -14,6 +13,8 @@ import hudson.security.ACL;
 import hudson.util.ListBoxModel;
 import hudson.util.Secret;
 import jenkins.model.Jenkins;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
@@ -22,6 +23,7 @@ import java.util.Collections;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.StreamSupport;
 
 /**
  * @author <a href="mailto:nicolas.deloof@gmail.com">Nicolas De Loof</a>
@@ -43,15 +45,17 @@ public class SMTPAuthentication extends AbstractDescribableImpl<SMTPAuthenticati
     /** The ID of the Jenkins Username/Password credential to use. */
     private String credentialsId;
 
-    @Deprecated
-    public SMTPAuthentication(String username, Secret password) {
-        this.username = username;
-        this.password = password;
-    }
-
     @DataBoundConstructor
     public SMTPAuthentication(String credentialsId) {
         this.credentialsId = credentialsId;
+    }
+
+    @Deprecated
+    @Restricted(NoExternalUse.class)
+    SMTPAuthentication(String username, Secret password) {
+        this.username = username;
+        this.password = password;
+        readResolve();
     }
 
     public String getCredentialsId() {
@@ -62,14 +66,13 @@ public class SMTPAuthentication extends AbstractDescribableImpl<SMTPAuthenticati
         if (username != null || password != null) {
             LOGGER.log(Level.CONFIG, "Migrating the Mailer SMTP authentication details to credential...");
 
-            final CredentialsStore store = ExtensionList.lookup(CredentialsStore.class).get(SystemCredentialsProvider.StoreImpl.class);
-
-            if (store == null) {
-                throw new RuntimeException("Could not migrate the Mailer SMTP authentication details to credential, as the system credentials provider was missing.");
-            }
+            final CredentialsStore store = StreamSupport.stream(CredentialsProvider.lookupStores(Jenkins.get()).spliterator(), false)
+                    .filter(s -> s instanceof SystemCredentialsProvider.StoreImpl)
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException("Could not migrate the Mailer SMTP authentication details to credential, as the system credentials provider was missing."));
 
             final boolean isSuccess = retry(NUM_RETRIES, (attempt) -> {
-                LOGGER.log(Level.CONFIG, "Attempt {}/{}...", new Object[]{ attempt, NUM_RETRIES});
+                LOGGER.log(Level.CONFIG, "Attempt {0}/{1}...", new Object[]{ attempt, NUM_RETRIES});
 
                 final String id = UUID.randomUUID().toString();
 
@@ -82,7 +85,9 @@ public class SMTPAuthentication extends AbstractDescribableImpl<SMTPAuthenticati
 
                 store.addCredentials(Domain.global(), migratedCredential);
 
-                LOGGER.log(Level.CONFIG, "Successfully migrated the Mailer SMTP authentication details to the credential '{}'", id);
+                this.credentialsId = id;
+
+                LOGGER.log(Level.CONFIG, "Successfully migrated the Mailer SMTP authentication details to the credential {0}", id);
             });
 
             if (!isSuccess) {
